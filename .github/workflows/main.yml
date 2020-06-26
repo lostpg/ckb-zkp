@@ -1,39 +1,70 @@
-# This is a basic workflow to help you get started with Actions
+name: CI (Linux)
+# Refs:
+# https://github.com/actix/actix/blob/master/.github/workflows/linux.yml
+# https://github.com/starship/starship/blob/master/.github/workflows/workflow.yml
 
-name: CI
-
-# Controls when the action will run. Triggers the workflow on push or pull request
-# events but only for the master branch
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  build_and_test_ckb-zkp:
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - stable
+    name: ${{ matrix.version }} - x86_64-unknown-linux-gnu
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
 
-    # Runs a single command using the runners shell
-    - name: Run a one-line script
-      run: echo Hello, world!
+      - name: Setup Rust ${{ matrix.version }}
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.version }}-x86_64-unknown-linux-gnu
+          profile: minimal
+          override: true
 
-    # Runs a set of commands using the runners shell
-    - name: Run a multi-line script
-      run: |
-        echo Add other actions to build,
-        echo test, and deploy your project.
+      - name: Generate Cargo.lock
+        uses: actions-rs/cargo@v1
+        with:
+          command: generate-lockfile
 
-    - name: Build ckb-zkp
-      run: cargo build --verbose
+      - name: Cache cargo dirs
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+          key: ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-trimmed-
 
-    - name: Test ckb-zkp without testing contracts
-      run: cargo test --workspace --exclude tests
+      - name: Cache cargo build
+        uses: actions/cache@v2
+        with:
+          path: target
+          key: ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check build
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --workspace --bins --examples --tests --exclude=tests
+
+      - name: All tests
+        uses: actions-rs/cargo@v1
+        timeout-minutes: 40
+        with:
+          command: test
+          args: --workspace --exclude=tests --all-features --no-fail-fast
+
+      - name: Clear the cargo caches
+        run: |
+          which cargo-cache || cargo install cargo-cache --no-default-features --features ci-autoclean
+          cargo-cache
