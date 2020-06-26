@@ -1,4 +1,4 @@
-name: CI (Linux)
+name: CI
 # Refs:
 # https://github.com/actix/actix/blob/master/.github/workflows/linux.yml
 # https://github.com/starship/starship/blob/master/.github/workflows/workflow.yml
@@ -10,14 +10,23 @@ on:
     branches: [master]
 
 jobs:
-  build_and_test_ckb-zkp:
+  test_ckb-zkp:
     strategy:
       fail-fast: false
       matrix:
         version:
           - stable
-    name: ${{ matrix.version }} - x86_64-unknown-linux-gnu
-    runs-on: ubuntu-latest
+        os:
+          - ubuntu-latest
+          - macos-latest
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+
+    name: ${{ matrix.os }} - ${{ matrix.version }}-${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v2
@@ -25,9 +34,10 @@ jobs:
       - name: Setup Rust ${{ matrix.version }}
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.version }}-x86_64-unknown-linux-gnu
+          toolchain: ${{ matrix.version }}
           profile: minimal
           override: true
+          target: ${{ matrix.target }}
 
       - name: Generate Cargo.lock
         uses: actions-rs/cargo@v1
@@ -41,15 +51,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin
-          key: ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.version }}-${{ matrix.target }}-cargo-trimmed-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-trimmed-
+            ${{ matrix.version }}-${{ matrix.target }}-cargo-trimmed-
 
       - name: Cache cargo build
         uses: actions/cache@v2
         with:
           path: target
-          key: ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.version }}-${{ matrix.target }}-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check build
         uses: actions-rs/cargo@v1
@@ -57,12 +67,12 @@ jobs:
           command: check
           args: --workspace --bins --examples --tests --exclude=tests
 
-      - name: All tests
-        uses: actions-rs/cargo@v1
-        timeout-minutes: 40
-        with:
-          command: test
-          args: --workspace --exclude=tests --all-features --no-fail-fast
+      # - name: All tests
+      #   uses: actions-rs/cargo@v1
+      #   timeout-minutes: 120
+      #   with:
+      #     command: test
+      #     args: --workspace --exclude=tests --no-fail-fast
 
       - name: Clear the cargo caches
         run: |
